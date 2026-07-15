@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use uncm::ncm::{Decoder, Headers};
 
-const HELP: &str = r#"uNcm 0.1.0 - 纯标准库 NCM 批量解密器
+const HELP: &str = r#"uNcm 1.0.0 - 纯标准库 NCM 批量解密器
 
 用法:
   uNcm [选项] <文件或目录>...
