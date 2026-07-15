@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-x86_64:
+    name: Windows x86_64
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install stable Rust
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add x86_64-pc-windows-msvc
+
+      - name: Verify tag matches Cargo version
+        shell: pwsh
+        run: |
+          $manifest = Get-Content Cargo.toml -Raw
+          if ($manifest -notmatch '(?m)^version\s*=\s*"([^"]+)"') {
+            throw "Unable to read package version from Cargo.toml"
+          }
+          $version = $Matches[1]
+          $expectedTag = "v$version"
+          if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+            throw "Tag $env:GITHUB_REF_NAME does not match Cargo version $version (expected $expectedTag)"
+          }
+          "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Test
+        run: cargo test --release --locked --target x86_64-pc-windows-msvc
+
+      - name: Build Windows binary
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc
+
+      - name: Package release
+        shell: pwsh
+        run: |
+          $name = "uNcm-v$env:RELEASE_VERSION-windows-x86_64"
+          $package = Join-Path $env:RUNNER_TEMP $name
+          New-Item -ItemType Directory -Path $package | Out-Null
+          Copy-Item "target/x86_64-pc-windows-msvc/release/uNcm.exe" $package
+          Copy-Item README.md $package
+          Copy-Item LICENSE $package
+
+          New-Item -ItemType Directory -Path dist | Out-Null
+          $archive = Join-Path (Resolve-Path dist) "$name.zip"
+          Compress-Archive -Path "$package/*" -DestinationPath $archive -CompressionLevel Optimal
+          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $name.zip" | Set-Content -LiteralPath "$archive.sha256" -Encoding ascii
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME `
+            "dist/uNcm-v$env:RELEASE_VERSION-windows-x86_64.zip" `
+            "dist/uNcm-v$env:RELEASE_VERSION-windows-x86_64.zip.sha256" `
+            --verify-tag `
+            --title "uNcm v$env:RELEASE_VERSION" `
+            --generate-notes
